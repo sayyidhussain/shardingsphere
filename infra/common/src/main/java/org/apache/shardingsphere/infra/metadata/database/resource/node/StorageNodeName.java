@@ -15,18 +15,37 @@
  * limitations under the License.
  */
 
-package org.apache.shardingsphere.mode.repository.cluster.nacos.props;
+package org.apache.shardingsphere.infra.metadata.database.resource.node;
 
-import org.apache.shardingsphere.infra.props.TypedProperties;
-
-import java.util.Properties;
+import com.google.common.base.Objects;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 
 /**
- * Typed properties of Nacos.
+ * Storage node name.
  */
-public final class NacosProperties extends TypedProperties<NacosPropertyKey> {
+@RequiredArgsConstructor
+@Getter
+public final class StorageNodeName {
     
-    public NacosProperties(final Properties props) {
-        super(NacosPropertyKey.class, props);
+    private final String name;
+    
+    public StorageNodeName(final String hostname, final int port, final String username) {
+        name = String.format("%s_%s_%s", hostname, port, username);
+    }
+    
+    @Override
+    public boolean equals(final Object obj) {
+        return obj instanceof StorageNodeName && ((StorageNodeName) obj).name.equalsIgnoreCase(name);
+    }
+    
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(name.toUpperCase());
+    }
+    
+    @Override
+    public String toString() {
+        return name;
     }
 }

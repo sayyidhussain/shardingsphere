@@ -17,35 +17,29 @@
 
 package org.apache.shardingsphere.infra.metadata.database.resource.node;
 
-import com.google.common.base.Objects;
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
-import org.apache.shardingsphere.infra.database.core.type.DatabaseType;
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
+
+import javax.sql.DataSource;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.stream.Collectors;
 
 /**
- * Storage node properties.
+ * Storage node utility class.
  */
-@RequiredArgsConstructor
-@Getter
-public final class StorageNodeProperties {
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
+public final class StorageNodeUtils {
     
-    private final String name;
-    
-    private final DatabaseType databaseType;
-    
-    private final String catalog;
-    
-    @Override
-    public boolean equals(final Object obj) {
-        if (obj instanceof StorageNodeProperties) {
-            StorageNodeProperties storageNodeProps = (StorageNodeProperties) obj;
-            return storageNodeProps.name.equals(name);
-        }
-        return false;
-    }
-    
-    @Override
-    public int hashCode() {
-        return Objects.hashCode(name.toUpperCase());
+    /**
+     * Get storage node data sources.
+     *
+     * @param dataSources data sources
+     * @return storage node data sources
+     */
+    public static Map<StorageNodeName, DataSource> getStorageNodeDataSources(final Map<String, DataSource> dataSources) {
+        return dataSources.entrySet().stream().collect(
+                Collectors.toMap(entry -> new StorageNodeName(entry.getKey()), Entry::getValue, (oldValue, currentValue) -> currentValue, () -> new LinkedHashMap<>(dataSources.size(), 1F)));
     }
 }

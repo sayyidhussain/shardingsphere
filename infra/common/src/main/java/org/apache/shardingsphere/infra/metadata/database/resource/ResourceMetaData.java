@@ -20,12 +20,14 @@ package org.apache.shardingsphere.infra.metadata.database.resource;
 import lombok.Getter;
 import org.apache.shardingsphere.infra.database.core.connector.ConnectionProperties;
 import org.apache.shardingsphere.infra.database.core.type.DatabaseType;
-import org.apache.shardingsphere.infra.datasource.pool.destroyer.DataSourcePoolDestroyer;
-import org.apache.shardingsphere.infra.datasource.pool.props.domain.DataSourcePoolProperties;
 import org.apache.shardingsphere.infra.datasource.pool.props.creator.DataSourcePoolPropertiesCreator;
+import org.apache.shardingsphere.infra.datasource.pool.props.domain.DataSourcePoolProperties;
 import org.apache.shardingsphere.infra.metadata.database.resource.node.StorageNode;
+import org.apache.shardingsphere.infra.metadata.database.resource.node.StorageNodeName;
+import org.apache.shardingsphere.infra.metadata.database.resource.node.StorageNodeUtils;
 import org.apache.shardingsphere.infra.metadata.database.resource.unit.StorageUnit;
 import org.apache.shardingsphere.infra.metadata.database.resource.unit.StorageUnitMetaData;
+import org.apache.shardingsphere.infra.metadata.database.resource.unit.StorageUnitNodeMapUtils;
 
 import javax.sql.DataSource;
 import java.util.Collection;
@@ -41,24 +43,22 @@ import java.util.stream.Collectors;
 @Getter
 public final class ResourceMetaData {
     
-    private final Map<StorageNode, DataSource> dataSourceMap;
+    private final Map<StorageNodeName, DataSource> dataSources;
     
     private final StorageUnitMetaData storageUnitMetaData;
     
     public ResourceMetaData(final Map<String, DataSource> dataSources) {
-        this(null, dataSources);
+        this.dataSources = StorageNodeUtils.getStorageNodeDataSources(dataSources);
+        storageUnitMetaData = new StorageUnitMetaData(null, StorageUnitNodeMapUtils.fromDataSources(dataSources),
+                dataSources.entrySet().stream().collect(
+                        Collectors.toMap(Entry::getKey, entry -> DataSourcePoolPropertiesCreator.create(entry.getValue()), (oldValue, currentValue) -> oldValue, LinkedHashMap::new)),
+                this.dataSources);
     }
     
-    public ResourceMetaData(final String databaseName, final Map<String, DataSource> dataSources) {
-        dataSourceMap = StorageResourceUtils.getStorageNodeDataSources(dataSources);
-        storageUnitMetaData = new StorageUnitMetaData(databaseName, dataSourceMap, dataSources.entrySet().stream()
-                .collect(Collectors.toMap(Entry::getKey, entry -> DataSourcePoolPropertiesCreator.create(entry.getValue()), (oldValue, currentValue) -> oldValue, LinkedHashMap::new)),
-                StorageResourceUtils.getStorageUnitNodeMappers(dataSources));
-    }
-    
-    public ResourceMetaData(final String databaseName, final StorageResource storageResource, final Map<String, DataSourcePoolProperties> propsMap) {
-        dataSourceMap = storageResource.getDataSourceMap();
-        storageUnitMetaData = new StorageUnitMetaData(databaseName, dataSourceMap, propsMap, storageResource.getStorageUnitNodeMappers());
+    public ResourceMetaData(final String databaseName, final Map<StorageNodeName, DataSource> dataSources,
+                            final Map<String, StorageNode> storageUnitNodeMap, final Map<String, DataSourcePoolProperties> propsMap) {
+        this.dataSources = dataSources;
+        storageUnitMetaData = new StorageUnitMetaData(databaseName, storageUnitNodeMap, propsMap, dataSources);
     }
     
     /**
@@ -109,14 +109,5 @@ public final class ResourceMetaData {
      */
     public Collection<String> getNotExistedDataSources(final Collection<String> resourceNames) {
         return resourceNames.stream().filter(each -> !storageUnitMetaData.getStorageUnits().containsKey(each)).collect(Collectors.toSet());
-    }
-    
-    /**
-     * Close data source.
-     *
-     * @param dataSource data source to be closed
-     */
-    public void close(final DataSource dataSource) {
-        new DataSourcePoolDestroyer(dataSource).asyncDestroy();
     }
 }

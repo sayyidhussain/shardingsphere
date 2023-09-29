@@ -19,12 +19,10 @@ package org.apache.shardingsphere.infra.metadata.database.resource;
 
 import lombok.Getter;
 import org.apache.shardingsphere.infra.datasource.pool.CatalogSwitchableDataSource;
-import org.apache.shardingsphere.infra.datasource.pool.props.domain.DataSourcePoolProperties;
 import org.apache.shardingsphere.infra.metadata.database.resource.node.StorageNode;
-import org.apache.shardingsphere.infra.metadata.database.resource.unit.StorageUnitNodeMapper;
+import org.apache.shardingsphere.infra.metadata.database.resource.node.StorageNodeName;
 
 import javax.sql.DataSource;
-import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -35,32 +33,25 @@ import java.util.Map.Entry;
 @Getter
 public final class StorageResource {
     
-    private final Map<StorageNode, DataSource> dataSourceMap;
+    private final Map<StorageNodeName, DataSource> dataSources;
     
-    private final Map<String, StorageUnitNodeMapper> storageUnitNodeMappers;
+    private final Map<String, StorageNode> storageUnitNodeMap;
     
     private final Map<String, DataSource> wrappedDataSources;
     
-    private final Map<String, DataSourcePoolProperties> dataSourcePoolPropertiesMap;
-    
-    public StorageResource(final Map<StorageNode, DataSource> dataSourceMap, final Map<String, StorageUnitNodeMapper> storageUnitNodeMappers) {
-        this(dataSourceMap, storageUnitNodeMappers, Collections.emptyMap());
-    }
-    
-    public StorageResource(final Map<StorageNode, DataSource> dataSourceMap,
-                           final Map<String, StorageUnitNodeMapper> storageUnitNodeMappers, final Map<String, DataSourcePoolProperties> dataSourcePoolPropertiesMap) {
-        this.dataSourceMap = dataSourceMap;
-        this.storageUnitNodeMappers = storageUnitNodeMappers;
+    public StorageResource(final Map<StorageNodeName, DataSource> dataSources, final Map<String, StorageNode> storageUnitNodeMap) {
+        this.dataSources = dataSources;
+        this.storageUnitNodeMap = storageUnitNodeMap;
         wrappedDataSources = createWrappedDataSources();
-        this.dataSourcePoolPropertiesMap = dataSourcePoolPropertiesMap;
     }
     
     private Map<String, DataSource> createWrappedDataSources() {
-        Map<String, DataSource> result = new LinkedHashMap<>(storageUnitNodeMappers.size(), 1F);
-        for (Entry<String, StorageUnitNodeMapper> entry : storageUnitNodeMappers.entrySet()) {
-            DataSource dataSource = dataSourceMap.get(entry.getValue().getStorageNode());
+        Map<String, DataSource> result = new LinkedHashMap<>(storageUnitNodeMap.size(), 1F);
+        for (Entry<String, StorageNode> entry : storageUnitNodeMap.entrySet()) {
+            StorageNode storageNode = entry.getValue();
+            DataSource dataSource = dataSources.get(storageNode.getName());
             if (null != dataSource) {
-                result.put(entry.getKey(), new CatalogSwitchableDataSource(dataSource, entry.getValue().getCatalog(), entry.getValue().getUrl()));
+                result.put(entry.getKey(), new CatalogSwitchableDataSource(dataSource, storageNode.getCatalog(), storageNode.getUrl()));
             }
         }
         return result;

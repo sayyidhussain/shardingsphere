@@ -20,6 +20,7 @@ package org.apache.shardingsphere.infra.metadata.database.resource.unit;
 import lombok.Getter;
 import org.apache.shardingsphere.infra.datasource.pool.props.domain.DataSourcePoolProperties;
 import org.apache.shardingsphere.infra.metadata.database.resource.node.StorageNode;
+import org.apache.shardingsphere.infra.metadata.database.resource.node.StorageNodeName;
 
 import javax.sql.DataSource;
 import java.util.LinkedHashMap;
@@ -34,38 +35,23 @@ import java.util.stream.Collectors;
 public final class StorageUnitMetaData {
     
     // TODO zhangliang: should refactor
-    private final Map<String, StorageUnitNodeMapper> unitNodeMappers;
+    private final Map<String, StorageNode> storageNodes;
+    
+    private final Map<String, DataSourcePoolProperties> dataSourcePoolPropertiesMap;
     
     private final Map<String, StorageUnit> storageUnits;
     
     // TODO zhangliang: should refactor
     private final Map<String, DataSource> dataSources;
     
-    public StorageUnitMetaData(final String databaseName, final Map<StorageNode, DataSource> storageNodeDataSources,
-                               final Map<String, DataSourcePoolProperties> dataSourcePoolPropertiesMap, final Map<String, StorageUnitNodeMapper> unitNodeMappers) {
-        this.unitNodeMappers = unitNodeMappers;
-        storageUnits = new LinkedHashMap<>(unitNodeMappers.size(), 1F);
-        for (Entry<String, StorageUnitNodeMapper> entry : unitNodeMappers.entrySet()) {
-            storageUnits.put(entry.getKey(), new StorageUnit(databaseName, storageNodeDataSources, dataSourcePoolPropertiesMap.get(entry.getKey()), entry.getValue()));
-        }
-        dataSources = createDataSources();
-    }
-    
-    /**
-     * Get data source pool properties map.
-     * 
-     * @return data source pool properties map
-     */
-    public Map<String, DataSourcePoolProperties> getDataSourcePoolPropertiesMap() {
-        return storageUnits.entrySet().stream()
-                .collect(Collectors.toMap(Entry::getKey, entry -> entry.getValue().getDataSourcePoolProperties(), (oldValue, currentValue) -> oldValue, LinkedHashMap::new));
-    }
-    
-    private Map<String, DataSource> createDataSources() {
-        Map<String, DataSource> result = new LinkedHashMap<>(storageUnits.size(), 1F);
-        for (Entry<String, StorageUnit> entry : storageUnits.entrySet()) {
-            result.put(entry.getKey(), entry.getValue().getDataSource());
-        }
-        return result;
+    public StorageUnitMetaData(final String databaseName, final Map<String, StorageNode> storageNodes, final Map<String, DataSourcePoolProperties> dataSourcePoolPropertiesMap,
+                               final Map<StorageNodeName, DataSource> dataSources) {
+        this.storageNodes = storageNodes;
+        this.dataSourcePoolPropertiesMap = dataSourcePoolPropertiesMap;
+        storageUnits = storageNodes.entrySet().stream().collect(
+                Collectors.toMap(Entry::getKey, entry -> new StorageUnit(databaseName, dataSources.get(entry.getValue().getName()), dataSourcePoolPropertiesMap.get(entry.getKey()), entry.getValue()),
+                        (oldValue, currentValue) -> currentValue, () -> new LinkedHashMap<>(this.storageNodes.size(), 1F)));
+        this.dataSources = storageUnits.entrySet().stream().collect(
+                Collectors.toMap(Entry::getKey, entry -> entry.getValue().getDataSource(), (oldValue, currentValue) -> currentValue, () -> new LinkedHashMap<>(storageUnits.size(), 1F)));
     }
 }
