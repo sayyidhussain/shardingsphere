@@ -180,6 +180,9 @@ public final class DatabaseConnector implements DatabaseBackendHandler {
     }
     
     private boolean isNeedImplicitCommitTransaction(final Collection<ExecutionContext> executionContexts) {
+        if (!databaseConnectionManager.getConnectionSession().isAutoCommit()) {
+            return false;
+        }
         TransactionStatus transactionStatus = databaseConnectionManager.getConnectionSession().getTransactionStatus();
         if (!TransactionType.isDistributedTransaction(transactionStatus.getTransactionType()) || transactionStatus.isInTransaction()) {
             return false;
@@ -251,7 +254,7 @@ public final class DatabaseConnector implements DatabaseBackendHandler {
         JDBCBackendStatement statementManager = (JDBCBackendStatement) databaseConnectionManager.getConnectionSession().getStatementManager();
         return new DriverExecutionPrepareEngine<>(driverType, maxConnectionsSizePerQuery, databaseConnectionManager, statementManager,
                 new StatementOption(isReturnGeneratedKeys), metaData.getMetaData().getDatabase(databaseConnectionManager.getConnectionSession().getDatabaseName()).getRuleMetaData().getRules(),
-                metaData.getMetaData().getDatabase(databaseConnectionManager.getConnectionSession().getDatabaseName()).getResourceMetaData().getStorageUnitMetaData());
+                metaData.getMetaData().getDatabase(databaseConnectionManager.getConnectionSession().getDatabaseName()).getResourceMetaData().getStorageUnits());
     }
     
     private ResponseHeader processExecuteFederation(final ResultSet resultSet, final MetaDataContexts metaDataContexts) throws SQLException {

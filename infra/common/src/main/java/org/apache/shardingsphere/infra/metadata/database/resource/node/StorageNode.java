@@ -17,6 +17,7 @@
 
 package org.apache.shardingsphere.infra.metadata.database.resource.node;
 
+import com.google.common.base.Objects;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
@@ -27,13 +28,24 @@ import lombok.RequiredArgsConstructor;
 @Getter
 public final class StorageNode {
     
-    private final StorageNodeName name;
+    private final String name;
     
-    private final String url;
+    public StorageNode(final String hostname, final int port, final String username) {
+        name = String.format("%s_%s_%s", hostname, port, username);
+    }
     
-    private final String catalog;
+    @Override
+    public boolean equals(final Object obj) {
+        return obj instanceof StorageNode && ((StorageNode) obj).name.equalsIgnoreCase(name);
+    }
     
-    public StorageNode(final StorageNodeName name, final String url) {
-        this(name, url, null);
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(name.toUpperCase());
+    }
+    
+    @Override
+    public String toString() {
+        return name;
     }
 }

@@ -43,7 +43,7 @@ public final class RefreshTableMetaDataUpdater implements ConnectionSessionRequi
     public void executeUpdate(final ConnectionSession connectionSession, final RefreshTableMetaDataStatement sqlStatement) {
         String databaseName = getDatabaseName(connectionSession);
         ContextManager contextManager = ProxyContext.getInstance().getContextManager();
-        checkStorageUnits(databaseName, contextManager.getStorageUnits(databaseName), sqlStatement);
+        checkStorageUnit(databaseName, contextManager.getStorageUnits(databaseName), sqlStatement);
         String schemaName = getSchemaName(databaseName, sqlStatement, connectionSession);
         if (sqlStatement.getStorageUnitName().isPresent()) {
             if (sqlStatement.getTableName().isPresent()) {
@@ -60,7 +60,7 @@ public final class RefreshTableMetaDataUpdater implements ConnectionSessionRequi
         }
     }
     
-    private void checkStorageUnits(final String databaseName, final Map<String, StorageUnit> storageUnits, final RefreshTableMetaDataStatement sqlStatement) {
+    private void checkStorageUnit(final String databaseName, final Map<String, StorageUnit> storageUnits, final RefreshTableMetaDataStatement sqlStatement) {
         ShardingSpherePreconditions.checkState(!storageUnits.isEmpty(), () -> new EmptyStorageUnitException(databaseName));
         if (sqlStatement.getStorageUnitName().isPresent()) {
             String storageUnitName = sqlStatement.getStorageUnitName().get();

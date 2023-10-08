@@ -21,11 +21,10 @@ import lombok.Getter;
 import org.apache.shardingsphere.infra.config.database.DatabaseConfiguration;
 import org.apache.shardingsphere.infra.config.rule.RuleConfiguration;
 import org.apache.shardingsphere.infra.config.rule.decorator.RuleConfigurationDecorator;
-import org.apache.shardingsphere.infra.datasource.pool.destroyer.DataSourcePoolDestroyer;
 import org.apache.shardingsphere.infra.datasource.pool.config.DataSourceConfiguration;
-import org.apache.shardingsphere.infra.datasource.pool.props.domain.DataSourcePoolProperties;
 import org.apache.shardingsphere.infra.datasource.pool.props.creator.DataSourcePoolPropertiesCreator;
-import org.apache.shardingsphere.infra.metadata.database.resource.node.StorageNodeName;
+import org.apache.shardingsphere.infra.datasource.pool.props.domain.DataSourcePoolProperties;
+import org.apache.shardingsphere.infra.metadata.database.resource.node.StorageNode;
 import org.apache.shardingsphere.infra.rule.ShardingSphereRule;
 import org.apache.shardingsphere.infra.spi.type.typed.TypedSPILoader;
 import org.apache.shardingsphere.metadata.persist.data.ShardingSphereDataPersistService;
@@ -114,27 +113,24 @@ public final class MetaDataPersistService implements MetaDataBasedPersistService
     }
     
     private Map<String, DataSourcePoolProperties> getDataSourcePoolPropertiesMap(final DatabaseConfiguration databaseConfigs) {
-        if (!databaseConfigs.getDataSources().isEmpty() && databaseConfigs.getDataSourcePoolPropertiesMap().isEmpty()) {
-            return getDataSourcePoolPropertiesMap(databaseConfigs.getStorageResource().getDataSources());
+        if (!databaseConfigs.getStorageUnits().isEmpty() && databaseConfigs.getStorageUnits().isEmpty()) {
+            return getDataSourcePoolPropertiesMap(databaseConfigs.getDataSources());
         }
-        return databaseConfigs.getDataSourcePoolPropertiesMap();
+        return databaseConfigs.getStorageUnits().entrySet().stream()
+                .collect(Collectors.toMap(Entry::getKey, entry -> entry.getValue().getDataSourcePoolProperties(), (oldValue, currentValue) -> oldValue, LinkedHashMap::new));
     }
     
-    private Map<String, DataSourcePoolProperties> getDataSourcePoolPropertiesMap(final Map<StorageNodeName, DataSource> storageNodeDataSources) {
+    private Map<String, DataSourcePoolProperties> getDataSourcePoolPropertiesMap(final Map<StorageNode, DataSource> storageNodeDataSources) {
         Map<String, DataSourcePoolProperties> result = new LinkedHashMap<>(storageNodeDataSources.size(), 1F);
-        for (Entry<StorageNodeName, DataSource> entry : storageNodeDataSources.entrySet()) {
+        for (Entry<StorageNode, DataSource> entry : storageNodeDataSources.entrySet()) {
             result.put(entry.getKey().getName(), DataSourcePoolPropertiesCreator.create(entry.getValue()));
         }
         return result;
     }
     
     @Override
-    public Map<String, DataSourceConfiguration> getEffectiveDataSources(final String databaseName, final Map<String, ? extends DatabaseConfiguration> databaseConfigs) {
-        Map<String, DataSourcePoolProperties> propsMap = dataSourceUnitService.load(databaseName);
-        if (databaseConfigs.containsKey(databaseName) && !databaseConfigs.get(databaseName).getDataSources().isEmpty()) {
-            databaseConfigs.get(databaseName).getStorageResource().getDataSources().values().forEach(each -> new DataSourcePoolDestroyer(each).asyncDestroy());
-        }
-        return propsMap.entrySet().stream().collect(Collectors.toMap(Entry::getKey,
+    public Map<String, DataSourceConfiguration> loadDataSourceConfigurations(final String databaseName) {
+        return dataSourceUnitService.load(databaseName).entrySet().stream().collect(Collectors.toMap(Entry::getKey,
                 entry -> DataSourcePoolPropertiesCreator.createConfiguration(entry.getValue()), (oldValue, currentValue) -> oldValue, LinkedHashMap::new));
     }
 }

@@ -29,11 +29,8 @@ import org.apache.shardingsphere.infra.instance.mode.ModeContextManager;
 import org.apache.shardingsphere.infra.metadata.database.ShardingSphereDatabase;
 import org.apache.shardingsphere.infra.metadata.database.resource.ResourceMetaData;
 import org.apache.shardingsphere.infra.metadata.database.resource.node.StorageNode;
-import org.apache.shardingsphere.infra.metadata.database.resource.node.StorageNodeName;
-import org.apache.shardingsphere.infra.metadata.database.resource.node.StorageNodeUtils;
+import org.apache.shardingsphere.infra.metadata.database.resource.node.StorageNodeAggregator;
 import org.apache.shardingsphere.infra.metadata.database.resource.unit.StorageUnit;
-import org.apache.shardingsphere.infra.metadata.database.resource.unit.StorageUnitMetaData;
-import org.apache.shardingsphere.infra.metadata.database.resource.unit.StorageUnitNodeMapUtils;
 import org.apache.shardingsphere.infra.metadata.database.rule.RuleMetaData;
 import org.apache.shardingsphere.infra.metadata.database.schema.model.ShardingSphereColumn;
 import org.apache.shardingsphere.infra.metadata.database.schema.model.ShardingSphereSchema;
@@ -62,6 +59,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.stream.Collectors;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -105,9 +103,13 @@ class ContextManagerTest {
         when(mutableDataNodeRule.findTableDataNode("foo_schema", "foo_tbl")).thenReturn(Optional.of(mock(DataNode.class)));
         when(result.getRuleMetaData()).thenReturn(new RuleMetaData(Collections.singleton(mutableDataNodeRule)));
         when(result.getSchemas()).thenReturn(new HashMap<>(Collections.singletonMap("foo_schema", new ShardingSphereSchema())));
-        StorageUnit storageUnit = mock(StorageUnit.class);
+        StorageUnit storageUnit = mock(StorageUnit.class, RETURNS_DEEP_STUBS);
         when(storageUnit.getStorageType()).thenReturn(TypedSPILoader.getService(DatabaseType.class, "FIXTURE"));
-        when(result.getResourceMetaData().getStorageUnitMetaData().getStorageUnits()).thenReturn(Collections.singletonMap("foo_ds", storageUnit));
+        when(result.getResourceMetaData().getStorageUnits()).thenReturn(Collections.singletonMap("foo_ds", storageUnit));
+        DataSourcePoolProperties dataSourcePoolProps = mock(DataSourcePoolProperties.class, RETURNS_DEEP_STUBS);
+        when(dataSourcePoolProps.getConnectionPropertySynonyms().getStandardProperties()).thenReturn(Collections.singletonMap("url", "jdbc:mock://127.0.0.1/foo_db"));
+        Map<String, StorageUnit> storageUnits = Collections.singletonMap("foo_ds", new StorageUnit(mock(StorageNode.class), dataSourcePoolProps, new MockedDataSource()));
+        when(result.getResourceMetaData().getStorageUnits()).thenReturn(storageUnits);
         return result;
     }
     
@@ -222,10 +224,8 @@ class ContextManagerTest {
     void assertAlterRuleConfiguration() {
         ResourceMetaData resourceMetaData = mock(ResourceMetaData.class, RETURNS_DEEP_STUBS);
         Map<String, DataSource> dataSources = Collections.singletonMap("foo_ds", new MockedDataSource());
-        when(resourceMetaData.getDataSources()).thenReturn(StorageNodeUtils.getStorageNodeDataSources(dataSources));
-        StorageUnitMetaData storageUnitMetaData = mock(StorageUnitMetaData.class);
-        when(resourceMetaData.getStorageUnitMetaData()).thenReturn(storageUnitMetaData);
-        when(storageUnitMetaData.getStorageUnits()).thenReturn(Collections.emptyMap());
+        when(resourceMetaData.getDataSources()).thenReturn(StorageNodeAggregator.aggregateDataSources(dataSources));
+        when(resourceMetaData.getStorageUnits()).thenReturn(Collections.emptyMap());
         ShardingSphereDatabase database = new ShardingSphereDatabase("foo_db",
                 TypedSPILoader.getService(DatabaseType.class, "FIXTURE"), resourceMetaData, mock(RuleMetaData.class), Collections.emptyMap());
         when(metaDataContexts.getMetaData().getDatabase("foo_db")).thenReturn(database);
@@ -241,27 +241,28 @@ class ContextManagerTest {
                 "foo_db", TypedSPILoader.getService(DatabaseType.class, "FIXTURE"), createOriginalResource(), createOriginalRuleMetaData(), Collections.emptyMap());
         when(metaDataContexts.getMetaData().getDatabase("foo_db")).thenReturn(originalDatabaseMetaData);
         when(metaDataContexts.getMetaData().getGlobalRuleMetaData()).thenReturn(new RuleMetaData(Collections.emptyList()));
-        contextManager.getConfigurationContextManager().alterDataSourceUnitsConfiguration("foo_db",
-                Collections.singletonMap("foo_ds", new DataSourcePoolProperties(MockedDataSource.class.getName(), createProperties("test", "test"))));
-        assertThat(contextManager.getMetaDataContexts().getMetaData().getDatabase("foo_db").getResourceMetaData().getStorageUnitMetaData().getStorageUnits().size(), is(3));
+        Map<String, DataSourcePoolProperties> dataSourcePoolPropsMap = getToBeAlteredDataSourcePoolPropertiesMap();
+        contextManager.getConfigurationContextManager().alterDataSourceUnitsConfiguration("foo_db", dataSourcePoolPropsMap);
+        assertThat(contextManager.getMetaDataContexts().getMetaData().getDatabase("foo_db").getResourceMetaData().getStorageUnits().size(), is(3));
         assertAlteredDataSource((MockedDataSource) contextManager.getMetaDataContexts().getMetaData().getDatabase("foo_db")
-                .getResourceMetaData().getDataSources().get(new StorageNodeName("foo_ds")));
+                .getResourceMetaData().getDataSources().get(new StorageNode("foo_ds")));
     }
     
     private ResourceMetaData createOriginalResource() {
-        ResourceMetaData result = mock(ResourceMetaData.class, RETURNS_DEEP_STUBS);
         Map<String, DataSource> originalDataSources = new LinkedHashMap<>(2, 1F);
         originalDataSources.put("ds_1", new MockedDataSource());
         originalDataSources.put("ds_2", new MockedDataSource());
-        when(result.getStorageUnitMetaData().getDataSources()).thenReturn(originalDataSources);
-        Map<StorageNodeName, DataSource> storageNodeDataSourceMap = StorageNodeUtils.getStorageNodeDataSources(originalDataSources);
+        Map<StorageNode, DataSource> storageNodeDataSourceMap = StorageNodeAggregator.aggregateDataSources(originalDataSources);
+        Map<String, StorageNode> storageUnitNodeMap = originalDataSources.keySet().stream()
+                .collect(Collectors.toMap(each -> each, StorageNode::new, (oldValue, currentValue) -> oldValue, LinkedHashMap::new));
         Map<String, StorageUnit> storageUnits = new LinkedHashMap<>(2, 1F);
-        Map<String, StorageNode> storageUnitNodeMap = StorageUnitNodeMapUtils.fromDataSources(originalDataSources);
         for (Entry<String, StorageNode> entry : storageUnitNodeMap.entrySet()) {
-            storageUnits.put(entry.getKey(), new StorageUnit("foo_db", storageNodeDataSourceMap.get(entry.getValue().getName()), mock(DataSourcePoolProperties.class), entry.getValue()));
+            DataSourcePoolProperties dataSourcePoolProps = mock(DataSourcePoolProperties.class, RETURNS_DEEP_STUBS);
+            when(dataSourcePoolProps.getConnectionPropertySynonyms().getStandardProperties()).thenReturn(Collections.singletonMap("url", "jdbc:mock://127.0.0.1/foo_db"));
+            storageUnits.put(entry.getKey(), new StorageUnit(storageUnitNodeMap.get(entry.getKey()), dataSourcePoolProps, storageNodeDataSourceMap.get(entry.getValue())));
         }
-        when(result.getStorageUnitMetaData().getStorageUnits()).thenReturn(storageUnits);
-        when(result.getStorageUnitMetaData().getStorageNodes()).thenReturn(storageUnitNodeMap);
+        ResourceMetaData result = mock(ResourceMetaData.class, RETURNS_DEEP_STUBS);
+        when(result.getStorageUnits()).thenReturn(storageUnits);
         when(result.getDataSources()).thenReturn(storageNodeDataSourceMap);
         return result;
     }
@@ -269,6 +270,14 @@ class ContextManagerTest {
     private RuleMetaData createOriginalRuleMetaData() {
         RuleMetaData result = mock(RuleMetaData.class);
         when(result.getConfigurations()).thenReturn(Collections.singleton(mock(RuleConfiguration.class)));
+        return result;
+    }
+    
+    private Map<String, DataSourcePoolProperties> getToBeAlteredDataSourcePoolPropertiesMap() {
+        Map<String, DataSourcePoolProperties> result = new HashMap<>(3, 1F);
+        result.put("foo_ds", new DataSourcePoolProperties(MockedDataSource.class.getName(), createProperties("test", "test")));
+        result.put("ds_1", new DataSourcePoolProperties(MockedDataSource.class.getName(), createProperties("test", "test")));
+        result.put("ds_2", new DataSourcePoolProperties(MockedDataSource.class.getName(), createProperties("test", "test")));
         return result;
     }
     
@@ -288,8 +297,6 @@ class ContextManagerTest {
     @Test
     void assertReloadSchema() {
         when(metaDataContexts.getMetaData().getDatabase("foo_db").getName()).thenReturn("foo_db");
-        when(metaDataContexts.getMetaData().getDatabase("foo_db").getResourceMetaData()
-                .getStorageUnitMetaData().getStorageUnits().get("foo_ds").getStorageType()).thenReturn(TypedSPILoader.getService(DatabaseType.class, "FIXTURE"));
         DatabaseMetaDataPersistService databaseMetaDataPersistService = mock(DatabaseMetaDataPersistService.class, RETURNS_DEEP_STUBS);
         MetaDataPersistService persistService = mock(MetaDataPersistService.class);
         when(persistService.getDatabaseMetaDataService()).thenReturn(databaseMetaDataPersistService);
@@ -300,21 +307,19 @@ class ContextManagerTest {
     
     @Test
     void assertReloadTable() {
-        when(metaDataContexts.getMetaData().getDatabase("foo_db").getResourceMetaData().getStorageUnitMetaData().getDataSources())
-                .thenReturn(Collections.singletonMap("foo_ds", new MockedDataSource()));
         DatabaseMetaDataPersistService databaseMetaDataPersistService = mock(DatabaseMetaDataPersistService.class, RETURNS_DEEP_STUBS);
         MetaDataPersistService persistService = mock(MetaDataPersistService.class);
         when(persistService.getDatabaseMetaDataService()).thenReturn(databaseMetaDataPersistService);
         when(metaDataContexts.getPersistService()).thenReturn(persistService);
         contextManager.reloadTable("foo_db", "foo_schema", "foo_table");
-        assertTrue(contextManager.getMetaDataContexts().getMetaData().getDatabase("foo_db").getResourceMetaData().getStorageUnitMetaData().getDataSources().containsKey("foo_ds"));
+        assertTrue(contextManager.getMetaDataContexts().getMetaData().getDatabase("foo_db").getResourceMetaData().getStorageUnits().containsKey("foo_ds"));
     }
     
     private Map<String, Object> createProperties(final String username, final String password) {
         Map<String, Object> result = new HashMap<>(3, 1F);
-        result.putIfAbsent("url", "jdbc:mock://127.0.0.1/foo_ds");
-        result.putIfAbsent("username", username);
-        result.putIfAbsent("password", password);
+        result.put("url", "jdbc:mock://127.0.0.1/foo_ds");
+        result.put("username", username);
+        result.put("password", password);
         return result;
     }
     

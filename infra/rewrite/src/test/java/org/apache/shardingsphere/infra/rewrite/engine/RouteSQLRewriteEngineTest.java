@@ -177,7 +177,7 @@ class RouteSQLRewriteEngineTest {
     }
     
     private Map<String, StorageUnit> mockStorageUnits(final DatabaseType databaseType) {
-        StorageUnit result = mock(StorageUnit.class);
+        StorageUnit result = mock(StorageUnit.class, RETURNS_DEEP_STUBS);
         when(result.getStorageType()).thenReturn(databaseType);
         return Collections.singletonMap("ds_0", result);
     }
