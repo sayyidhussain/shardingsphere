@@ -76,4 +76,5 @@ public final class MySQLSelectStatement extends SelectStatement implements MySQL
     public Optional<SimpleTableSegment> getTable() {
         return Optional.ofNullable(table);
     }
+    
 }

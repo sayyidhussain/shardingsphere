@@ -18,40 +18,32 @@
 package org.apache.shardingsphere.mode.manager.cluster.coordinator.subscriber;
 
 import com.google.common.eventbus.Subscribe;
+import org.apache.shardingsphere.infra.instance.ComputeNodeInstance;
+import org.apache.shardingsphere.infra.metadata.database.ShardingSphereDatabase;
+import org.apache.shardingsphere.infra.metadata.database.schema.QualifiedDataSource;
+import org.apache.shardingsphere.infra.rule.attribute.datasource.StaticDataSourceRuleAttribute;
 import org.apache.shardingsphere.infra.state.datasource.DataSourceState;
 import org.apache.shardingsphere.infra.state.datasource.DataSourceStateManager;
-import org.apache.shardingsphere.infra.instance.ComputeNodeInstance;
-import org.apache.shardingsphere.infra.metadata.database.schema.QualifiedDatabase;
-import org.apache.shardingsphere.infra.rule.identifier.type.StaticDataSourceContainedRule;
+import org.apache.shardingsphere.infra.util.eventbus.EventSubscriber;
 import org.apache.shardingsphere.mode.manager.ContextManager;
-import org.apache.shardingsphere.mode.manager.cluster.coordinator.RegistryCenter;
-import org.apache.shardingsphere.mode.manager.cluster.coordinator.registry.status.cluster.event.ClusterLockDeletedEvent;
 import org.apache.shardingsphere.mode.manager.cluster.coordinator.registry.status.cluster.event.ClusterStateEvent;
-import org.apache.shardingsphere.mode.manager.cluster.coordinator.registry.status.cluster.event.ClusterStatusChangedEvent;
+import org.apache.shardingsphere.mode.manager.cluster.coordinator.registry.status.compute.event.ComputeNodeInstanceStateChangedEvent;
 import org.apache.shardingsphere.mode.manager.cluster.coordinator.registry.status.compute.event.InstanceOfflineEvent;
 import org.apache.shardingsphere.mode.manager.cluster.coordinator.registry.status.compute.event.InstanceOnlineEvent;
 import org.apache.shardingsphere.mode.manager.cluster.coordinator.registry.status.compute.event.LabelsEvent;
-import org.apache.shardingsphere.mode.manager.cluster.coordinator.registry.status.compute.event.StateEvent;
 import org.apache.shardingsphere.mode.manager.cluster.coordinator.registry.status.compute.event.WorkerIdEvent;
 import org.apache.shardingsphere.mode.manager.cluster.coordinator.registry.status.storage.event.StorageNodeChangedEvent;
-import org.apache.shardingsphere.mode.event.storage.StorageNodeDataSourceChangedEvent;
-
-import java.util.Optional;
 
 /**
  * State changed subscriber.
  */
-@SuppressWarnings("UnstableApiUsage")
-public final class StateChangedSubscriber {
-    
-    private final RegistryCenter registryCenter;
+@SuppressWarnings("unused")
+public final class StateChangedSubscriber implements EventSubscriber {
     
     private final ContextManager contextManager;
     
-    public StateChangedSubscriber(final RegistryCenter registryCenter, final ContextManager contextManager) {
-        this.registryCenter = registryCenter;
+    public StateChangedSubscriber(final ContextManager contextManager) {
         this.contextManager = contextManager;
-        contextManager.getInstanceContext().getEventBusContext().register(this);
     }
     
     /**
@@ -61,25 +53,15 @@ public final class StateChangedSubscriber {
      */
     @Subscribe
     public synchronized void renew(final StorageNodeChangedEvent event) {
-        if (!contextManager.getMetaDataContexts().getMetaData().containsDatabase(event.getQualifiedDatabase().getDatabaseName())) {
+        QualifiedDataSource qualifiedDataSource = event.getQualifiedDataSource();
+        if (!contextManager.getMetaDataContexts().getMetaData().containsDatabase(qualifiedDataSource.getDatabaseName())) {
             return;
         }
-        QualifiedDatabase qualifiedDatabase = event.getQualifiedDatabase();
-        Optional<StaticDataSourceContainedRule> staticDataSourceRule = contextManager.getMetaDataContexts()
-                .getMetaData().getDatabase(qualifiedDatabase.getDatabaseName()).getRuleMetaData().findSingleRule(StaticDataSourceContainedRule.class);
-        staticDataSourceRule.ifPresent(optional -> optional.updateStatus(new StorageNodeDataSourceChangedEvent(qualifiedDatabase, event.getDataSource())));
-        DataSourceStateManager.getInstance().updateState(
-                qualifiedDatabase.getDatabaseName(), qualifiedDatabase.getDataSourceName(), DataSourceState.valueOf(event.getDataSource().getStatus().name()));
-    }
-    
-    /**
-     * Reset cluster state.
-     * 
-     * @param event cluster lock deleted event
-     */
-    @Subscribe
-    public synchronized void renew(final ClusterLockDeletedEvent event) {
-        contextManager.getInstanceContext().getEventBusContext().post(new ClusterStatusChangedEvent(event.getState()));
+        DataSourceStateManager.getInstance().updateState(qualifiedDataSource, DataSourceState.valueOf(event.getStatus().getStatus().name()));
+        ShardingSphereDatabase database = contextManager.getMetaDataContexts().getMetaData().getDatabase(qualifiedDataSource.getDatabaseName());
+        for (StaticDataSourceRuleAttribute each : database.getRuleMetaData().getAttributes(StaticDataSourceRuleAttribute.class)) {
+            each.updateStatus(qualifiedDataSource, event.getStatus().getStatus());
+        }
     }
     
     /**
@@ -89,17 +71,17 @@ public final class StateChangedSubscriber {
      */
     @Subscribe
     public synchronized void renew(final ClusterStateEvent event) {
-        contextManager.updateClusterState(event.getStatus());
+        contextManager.getStateContext().switchClusterState(event.getClusterState());
     }
     
     /**
-     * Renew instance status.
+     * Renew compute node instance state.
      * 
-     * @param event state event
+     * @param event compute node instance state changed event
      */
     @Subscribe
-    public synchronized void renew(final StateEvent event) {
-        contextManager.getInstanceContext().updateInstanceStatus(event.getInstanceId(), event.getStatus());
+    public synchronized void renew(final ComputeNodeInstanceStateChangedEvent event) {
+        contextManager.getComputeNodeInstanceContext().updateStatus(event.getInstanceId(), event.getStatus());
     }
     
     /**
@@ -109,7 +91,7 @@ public final class StateChangedSubscriber {
      */
     @Subscribe
     public synchronized void renew(final WorkerIdEvent event) {
-        contextManager.getInstanceContext().updateWorkerId(event.getInstanceId(), event.getWorkerId());
+        contextManager.getComputeNodeInstanceContext().updateWorkerId(event.getInstanceId(), event.getWorkerId());
     }
     
     /**
@@ -120,7 +102,7 @@ public final class StateChangedSubscriber {
     @Subscribe
     public synchronized void renew(final LabelsEvent event) {
         // TODO labels may be empty
-        contextManager.getInstanceContext().updateLabel(event.getInstanceId(), event.getLabels());
+        contextManager.getComputeNodeInstanceContext().updateLabel(event.getInstanceId(), event.getLabels());
     }
     
     /**
@@ -130,7 +112,8 @@ public final class StateChangedSubscriber {
      */
     @Subscribe
     public synchronized void renew(final InstanceOnlineEvent event) {
-        contextManager.getInstanceContext().addComputeNodeInstance(registryCenter.getComputeNodeStatusService().loadComputeNodeInstance(event.getInstanceMetaData()));
+        contextManager.getComputeNodeInstanceContext().addComputeNodeInstance(contextManager.getPersistServiceFacade()
+                .getComputeNodePersistService().loadComputeNodeInstance(event.getInstanceMetaData()));
     }
     
     /**
@@ -140,6 +123,6 @@ public final class StateChangedSubscriber {
      */
     @Subscribe
     public synchronized void renew(final InstanceOfflineEvent event) {
-        contextManager.getInstanceContext().deleteComputeNodeInstance(new ComputeNodeInstance(event.getInstanceMetaData()));
+        contextManager.getComputeNodeInstanceContext().deleteComputeNodeInstance(new ComputeNodeInstance(event.getInstanceMetaData()));
     }
 }

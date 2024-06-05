@@ -22,8 +22,8 @@ import org.apache.shardingsphere.sql.parser.api.CacheOption;
 import org.apache.shardingsphere.sql.parser.api.SQLParserEngine;
 import org.apache.shardingsphere.sql.parser.api.SQLStatementVisitorEngine;
 import org.apache.shardingsphere.sql.parser.sql.common.statement.SQLStatement;
-import org.apache.shardingsphere.sqlfederation.compiler.converter.SQLNodeConverterEngine;
-import org.apache.shardingsphere.sqlfederation.executor.SQLDialectFactory;
+import org.apache.shardingsphere.sqlfederation.optimizer.converter.SQLNodeConverterEngine;
+import org.apache.shardingsphere.sqlfederation.optimizer.sql.SQLDialectFactory;
 import org.apache.shardingsphere.test.it.optimizer.converter.cases.SQLNodeConverterTestCases;
 import org.apache.shardingsphere.test.it.optimizer.converter.cases.SQLNodeConverterTestCasesRegistry;
 import org.apache.shardingsphere.test.it.sql.parser.internal.InternalSQLParserTestParameter;
@@ -66,6 +66,8 @@ class SQLNodeConverterEngineIT {
     
     private static final String INSERT_STATEMENT_PREFIX = "INSERT";
     
+    private static final String MERGE_STATEMENT_PREFIX = "MERGE";
+    
     @ParameterizedTest(name = "{0} ({1}) -> {2}")
     @ArgumentsSource(TestCaseArgumentsProvider.class)
     void assertConvert(final String sqlCaseId, final SQLCaseType sqlCaseType, final String databaseType) {
@@ -82,7 +84,7 @@ class SQLNodeConverterEngineIT {
     }
     
     private SQLStatement parseSQLStatement(final String databaseType, final String sql) {
-        return new SQLStatementVisitorEngine(databaseType, true).visit(new SQLParserEngine(databaseType, new CacheOption(128, 1024L)).parse(sql, false));
+        return new SQLStatementVisitorEngine(databaseType).visit(new SQLParserEngine(databaseType, new CacheOption(128, 1024L)).parse(sql, false));
     }
     
     private static class TestCaseArgumentsProvider implements ArgumentsProvider {
@@ -111,7 +113,8 @@ class SQLNodeConverterEngineIT {
                     || testParam.getSqlCaseId().toUpperCase().startsWith(DELETE_STATEMENT_PREFIX)
                     || testParam.getSqlCaseId().toUpperCase().startsWith(EXPLAIN_STATEMENT_PREFIX)
                     || testParam.getSqlCaseId().toUpperCase().startsWith(UPDATE_STATEMENT_PREFIX)
-                    || testParam.getSqlCaseId().toUpperCase().startsWith(INSERT_STATEMENT_PREFIX);
+                    || testParam.getSqlCaseId().toUpperCase().startsWith(INSERT_STATEMENT_PREFIX)
+                    || testParam.getSqlCaseId().toUpperCase().startsWith(MERGE_STATEMENT_PREFIX);
         }
     }
 }

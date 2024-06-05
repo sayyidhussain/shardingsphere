@@ -49,7 +49,7 @@ public final class ExpressionProjectionSegment implements ProjectionSegment, Com
         this.startIndex = startIndex;
         this.stopIndex = stopIndex;
         this.text = SQLUtils.getExpressionWithoutOutsideParentheses(text);
-        this.expr = null;
+        expr = null;
     }
     
     public ExpressionProjectionSegment(final int startIndex, final int stopIndex, final String text, final ExpressionSegment expr) {
@@ -74,8 +74,22 @@ public final class ExpressionProjectionSegment implements ProjectionSegment, Com
         return Optional.ofNullable(alias).map(AliasSegment::getIdentifier);
     }
     
+    /**
+     * Get alias segment.
+     *
+     * @return alias segment
+     */
+    public AliasSegment getAliasSegment() {
+        return alias;
+    }
+    
+    @Override
+    public int getStartIndex() {
+        return null != alias && alias.getStartIndex() < startIndex ? alias.getStartIndex() : startIndex;
+    }
+    
     @Override
     public int getStopIndex() {
-        return null == alias ? stopIndex : alias.getStopIndex();
+        return null != alias && alias.getStopIndex() > stopIndex ? alias.getStopIndex() : stopIndex;
     }
 }

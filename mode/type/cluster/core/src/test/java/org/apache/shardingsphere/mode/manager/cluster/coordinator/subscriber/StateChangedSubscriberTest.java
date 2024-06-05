@@ -25,38 +25,31 @@ import org.apache.shardingsphere.infra.instance.metadata.InstanceMetaData;
 import org.apache.shardingsphere.infra.instance.metadata.proxy.ProxyInstanceMetaData;
 import org.apache.shardingsphere.infra.metadata.ShardingSphereMetaData;
 import org.apache.shardingsphere.infra.metadata.database.ShardingSphereDatabase;
-import org.apache.shardingsphere.infra.metadata.database.schema.QualifiedDatabase;
+import org.apache.shardingsphere.infra.metadata.database.schema.QualifiedDataSource;
 import org.apache.shardingsphere.infra.metadata.database.schema.model.ShardingSphereSchema;
-import org.apache.shardingsphere.infra.rule.identifier.type.ResourceHeldRule;
-import org.apache.shardingsphere.infra.rule.identifier.type.StaticDataSourceContainedRule;
+import org.apache.shardingsphere.infra.rule.attribute.datasource.StaticDataSourceRuleAttribute;
 import org.apache.shardingsphere.infra.spi.type.typed.TypedSPILoader;
 import org.apache.shardingsphere.infra.state.cluster.ClusterState;
 import org.apache.shardingsphere.infra.state.datasource.DataSourceState;
 import org.apache.shardingsphere.infra.state.instance.InstanceState;
 import org.apache.shardingsphere.infra.util.eventbus.EventBusContext;
-import org.apache.shardingsphere.mode.event.storage.StorageNodeDataSource;
-import org.apache.shardingsphere.mode.event.storage.StorageNodeDataSourceChangedEvent;
-import org.apache.shardingsphere.mode.event.storage.StorageNodeRole;
 import org.apache.shardingsphere.mode.manager.ContextManager;
 import org.apache.shardingsphere.mode.manager.ContextManagerBuilderParameter;
 import org.apache.shardingsphere.mode.manager.cluster.ClusterContextManagerBuilder;
-import org.apache.shardingsphere.mode.manager.cluster.coordinator.RegistryCenter;
-import org.apache.shardingsphere.mode.manager.cluster.coordinator.registry.status.cluster.event.ClusterLockDeletedEvent;
 import org.apache.shardingsphere.mode.manager.cluster.coordinator.registry.status.cluster.event.ClusterStateEvent;
+import org.apache.shardingsphere.mode.manager.cluster.coordinator.registry.status.compute.event.ComputeNodeInstanceStateChangedEvent;
 import org.apache.shardingsphere.mode.manager.cluster.coordinator.registry.status.compute.event.InstanceOfflineEvent;
 import org.apache.shardingsphere.mode.manager.cluster.coordinator.registry.status.compute.event.InstanceOnlineEvent;
 import org.apache.shardingsphere.mode.manager.cluster.coordinator.registry.status.compute.event.LabelsEvent;
-import org.apache.shardingsphere.mode.manager.cluster.coordinator.registry.status.compute.event.StateEvent;
 import org.apache.shardingsphere.mode.manager.cluster.coordinator.registry.status.compute.event.WorkerIdEvent;
 import org.apache.shardingsphere.mode.manager.cluster.coordinator.registry.status.storage.event.StorageNodeChangedEvent;
-import org.apache.shardingsphere.mode.metadata.MetaDataContexts;
-import org.apache.shardingsphere.mode.repository.cluster.ClusterPersistRepository;
+import org.apache.shardingsphere.mode.metadata.MetaDataContextsFactory;
 import org.apache.shardingsphere.mode.repository.cluster.ClusterPersistRepositoryConfiguration;
+import org.apache.shardingsphere.mode.storage.QualifiedDataSourceState;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Answers;
-import org.mockito.ArgumentMatcher;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -68,8 +61,8 @@ import java.util.Collections;
 import java.util.LinkedList;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Properties;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -91,11 +84,12 @@ class StateChangedSubscriberTest {
     
     @BeforeEach
     void setUp() throws SQLException {
-        contextManager = new ClusterContextManagerBuilder().build(createContextManagerBuilderParameter());
-        contextManager.renewMetaDataContexts(new MetaDataContexts(contextManager.getMetaDataContexts().getPersistService(), new ShardingSphereMetaData(createDatabases(),
+        EventBusContext eventBusContext = new EventBusContext();
+        contextManager = new ClusterContextManagerBuilder().build(createContextManagerBuilderParameter(), eventBusContext);
+        contextManager.renewMetaDataContexts(MetaDataContextsFactory.create(contextManager.getPersistServiceFacade().getMetaDataPersistService(), new ShardingSphereMetaData(createDatabases(),
                 contextManager.getMetaDataContexts().getMetaData().getGlobalResourceMetaData(), contextManager.getMetaDataContexts().getMetaData().getGlobalRuleMetaData(),
                 new ConfigurationProperties(new Properties()))));
-        subscriber = new StateChangedSubscriber(new RegistryCenter(mock(ClusterPersistRepository.class), new EventBusContext(), mock(ProxyInstanceMetaData.class), null), contextManager);
+        subscriber = new StateChangedSubscriber(contextManager);
     }
     
     private ContextManagerBuilderParameter createContextManagerBuilderParameter() {
@@ -111,59 +105,52 @@ class StateChangedSubscriberTest {
         when(database.getSchema("foo_schema")).thenReturn(mock(ShardingSphereSchema.class));
         when(database.getRuleMetaData().getRules()).thenReturn(new LinkedList<>());
         when(database.getRuleMetaData().getConfigurations()).thenReturn(Collections.emptyList());
-        when(database.getRuleMetaData().findRules(ResourceHeldRule.class)).thenReturn(Collections.emptyList());
         return Collections.singletonMap("db", database);
     }
     
     @Test
     void assertRenewForDisableStateChanged() {
-        StaticDataSourceContainedRule staticDataSourceRule = mock(StaticDataSourceContainedRule.class);
-        when(database.getRuleMetaData().findSingleRule(StaticDataSourceContainedRule.class)).thenReturn(Optional.of(staticDataSourceRule));
-        StorageNodeChangedEvent event = new StorageNodeChangedEvent(new QualifiedDatabase("db.readwrite_ds.ds_0"), new StorageNodeDataSource(StorageNodeRole.MEMBER, DataSourceState.DISABLED));
+        StaticDataSourceRuleAttribute ruleAttribute = mock(StaticDataSourceRuleAttribute.class);
+        when(database.getRuleMetaData().getAttributes(StaticDataSourceRuleAttribute.class)).thenReturn(Collections.singleton(ruleAttribute));
+        StorageNodeChangedEvent event = new StorageNodeChangedEvent(new QualifiedDataSource("db.readwrite_ds.ds_0"), new QualifiedDataSourceState(DataSourceState.DISABLED));
         subscriber.renew(event);
-        verify(staticDataSourceRule).updateStatus(argThat(
-                (ArgumentMatcher<StorageNodeDataSourceChangedEvent>) argumentEvent -> Objects.equals(event.getQualifiedDatabase(), argumentEvent.getQualifiedDatabase())
-                        && Objects.equals(event.getDataSource(), argumentEvent.getDataSource())));
+        verify(ruleAttribute).updateStatus(
+                argThat(qualifiedDataSource -> Objects.equals(event.getQualifiedDataSource(), qualifiedDataSource)),
+                argThat(dataSourceState -> event.getStatus().getStatus() == dataSourceState));
     }
     
     @Test
-    void assertResetClusterStatus() {
-        ClusterLockDeletedEvent mockLockDeletedEvent = new ClusterLockDeletedEvent(ClusterState.OK);
-        subscriber.renew(mockLockDeletedEvent);
-        assertThat(contextManager.getClusterStateContext().getCurrentState(), is(ClusterState.OK));
-    }
-    
-    @Test
-    void assertRenewClusterStatus() {
-        ClusterStateEvent mockClusterStateEvent = new ClusterStateEvent("READ_ONLY");
+    void assertRenewClusterState() {
+        ClusterStateEvent mockClusterStateEvent = new ClusterStateEvent(ClusterState.READ_ONLY);
         subscriber.renew(mockClusterStateEvent);
-        assertThat(contextManager.getClusterStateContext().getCurrentState(), is(ClusterState.READ_ONLY));
+        assertThat(contextManager.getStateContext().getClusterState(), is(ClusterState.READ_ONLY));
     }
     
     @Test
-    void assertRenewInstanceStatus() {
-        StateEvent mockStateEvent = new StateEvent(contextManager.getInstanceContext().getInstance().getMetaData().getId(), InstanceState.OK.name());
-        subscriber.renew(mockStateEvent);
-        assertThat(contextManager.getInstanceContext().getInstance().getState().getCurrentState(), is(InstanceState.OK));
+    void assertRenewInstanceState() {
+        ComputeNodeInstanceStateChangedEvent event = new ComputeNodeInstanceStateChangedEvent(
+                contextManager.getComputeNodeInstanceContext().getInstance().getMetaData().getId(), InstanceState.OK.name());
+        subscriber.renew(event);
+        assertThat(contextManager.getComputeNodeInstanceContext().getInstance().getState().getCurrentState(), is(InstanceState.OK));
     }
     
     @Test
     void assertRenewInstanceWorkerIdEvent() {
-        subscriber.renew(new WorkerIdEvent(contextManager.getInstanceContext().getInstance().getMetaData().getId(), 0));
-        assertThat(contextManager.getInstanceContext().getInstance().getWorkerId(), is(0));
+        subscriber.renew(new WorkerIdEvent(contextManager.getComputeNodeInstanceContext().getInstance().getMetaData().getId(), 0));
+        assertThat(contextManager.getComputeNodeInstanceContext().getInstance().getWorkerId(), is(0));
     }
     
     @Test
     void assertRenewInstanceLabels() {
-        Collection<String> labels = Collections.singleton("test");
-        subscriber.renew(new LabelsEvent(contextManager.getInstanceContext().getInstance().getMetaData().getId(), labels));
-        assertThat(contextManager.getInstanceContext().getInstance().getLabels(), is(labels));
+        Collection<String> labels = Collections.singletonList("test");
+        subscriber.renew(new LabelsEvent(contextManager.getComputeNodeInstanceContext().getInstance().getMetaData().getId(), labels));
+        assertThat(contextManager.getComputeNodeInstanceContext().getInstance().getLabels(), is(labels));
     }
     
     @Test
     void assertRenewInstanceOfflineEvent() {
-        subscriber.renew(new InstanceOfflineEvent(contextManager.getInstanceContext().getInstance().getMetaData()));
-        assertThat(((ProxyInstanceMetaData) contextManager.getInstanceContext().getInstance().getMetaData()).getPort(), is(3307));
+        subscriber.renew(new InstanceOfflineEvent(contextManager.getComputeNodeInstanceContext().getInstance().getMetaData()));
+        assertThat(((ProxyInstanceMetaData) contextManager.getComputeNodeInstanceContext().getInstance().getMetaData()).getPort(), is(3307));
     }
     
     @Test
@@ -171,15 +158,15 @@ class StateChangedSubscriberTest {
         InstanceMetaData instanceMetaData1 = new ProxyInstanceMetaData("foo_instance_3307", 3307);
         InstanceOnlineEvent instanceOnlineEvent1 = new InstanceOnlineEvent(instanceMetaData1);
         subscriber.renew(instanceOnlineEvent1);
-        assertThat(contextManager.getInstanceContext().getAllClusterInstances().size(), is(1));
-        assertThat(((LinkedList<ComputeNodeInstance>) contextManager.getInstanceContext().getAllClusterInstances()).get(0).getMetaData(), is(instanceMetaData1));
+        assertThat(contextManager.getComputeNodeInstanceContext().getAllClusterInstances().size(), is(1));
+        assertThat(((CopyOnWriteArrayList<ComputeNodeInstance>) contextManager.getComputeNodeInstanceContext().getAllClusterInstances()).get(0).getMetaData(), is(instanceMetaData1));
         InstanceMetaData instanceMetaData2 = new ProxyInstanceMetaData("foo_instance_3308", 3308);
         InstanceOnlineEvent instanceOnlineEvent2 = new InstanceOnlineEvent(instanceMetaData2);
         subscriber.renew(instanceOnlineEvent2);
-        assertThat(contextManager.getInstanceContext().getAllClusterInstances().size(), is(2));
-        assertThat(((LinkedList<ComputeNodeInstance>) contextManager.getInstanceContext().getAllClusterInstances()).get(1).getMetaData(), is(instanceMetaData2));
+        assertThat(contextManager.getComputeNodeInstanceContext().getAllClusterInstances().size(), is(2));
+        assertThat(((CopyOnWriteArrayList<ComputeNodeInstance>) contextManager.getComputeNodeInstanceContext().getAllClusterInstances()).get(1).getMetaData(), is(instanceMetaData2));
         subscriber.renew(instanceOnlineEvent1);
-        assertThat(contextManager.getInstanceContext().getAllClusterInstances().size(), is(2));
-        assertThat(((LinkedList<ComputeNodeInstance>) contextManager.getInstanceContext().getAllClusterInstances()).get(1).getMetaData(), is(instanceMetaData1));
+        assertThat(contextManager.getComputeNodeInstanceContext().getAllClusterInstances().size(), is(2));
+        assertThat(((CopyOnWriteArrayList<ComputeNodeInstance>) contextManager.getComputeNodeInstanceContext().getAllClusterInstances()).get(1).getMetaData(), is(instanceMetaData1));
     }
 }

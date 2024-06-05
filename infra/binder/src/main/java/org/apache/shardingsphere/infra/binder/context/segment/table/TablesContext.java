@@ -17,10 +17,11 @@
 
 package org.apache.shardingsphere.infra.binder.context.segment.table;
 
+import com.cedarsoftware.util.CaseInsensitiveMap;
+import com.cedarsoftware.util.CaseInsensitiveSet;
 import com.google.common.base.Preconditions;
 import lombok.Getter;
 import lombok.ToString;
-import org.apache.commons.collections4.map.CaseInsensitiveMap;
 import org.apache.shardingsphere.infra.binder.context.segment.select.subquery.SubqueryTableContext;
 import org.apache.shardingsphere.infra.binder.context.segment.select.subquery.engine.SubqueryTableContextEngine;
 import org.apache.shardingsphere.infra.binder.context.statement.dml.SelectStatementContext;
@@ -38,7 +39,6 @@ import org.apache.shardingsphere.sql.parser.sql.common.value.identifier.Identifi
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.Map;
@@ -56,12 +56,11 @@ public final class TablesContext {
     
     private final Collection<SimpleTableSegment> simpleTableSegments = new LinkedList<>();
     
-    @Getter
-    private final Collection<String> tableNames = new HashSet<>();
+    private final Collection<String> tableNames = new CaseInsensitiveSet<>();
     
-    private final Collection<String> schemaNames = new HashSet<>();
+    private final Collection<String> schemaNames = new CaseInsensitiveSet<>();
     
-    private final Collection<String> databaseNames = new HashSet<>();
+    private final Collection<String> databaseNames = new CaseInsensitiveSet<>();
     
     private final Map<String, Collection<SubqueryTableContext>> subqueryTables = new HashMap<>();
     
@@ -104,7 +103,7 @@ public final class TablesContext {
     private Map<String, Collection<SubqueryTableContext>> createSubqueryTables(final Map<Integer, SelectStatementContext> subqueryContexts, final SubqueryTableSegment subqueryTable) {
         SelectStatementContext subqueryContext = subqueryContexts.get(subqueryTable.getSubquery().getStartIndex());
         Map<String, SubqueryTableContext> subqueryTableContexts = new SubqueryTableContextEngine().createSubqueryTableContexts(subqueryContext, subqueryTable.getAliasName().orElse(null));
-        Map<String, Collection<SubqueryTableContext>> result = new HashMap<>();
+        Map<String, Collection<SubqueryTableContext>> result = new HashMap<>(subqueryTableContexts.size(), 1F);
         for (SubqueryTableContext each : subqueryTableContexts.values()) {
             if (null != each.getAliasName()) {
                 result.computeIfAbsent(each.getAliasName(), unused -> new LinkedList<>()).add(each);
@@ -177,7 +176,7 @@ public final class TablesContext {
         if (ownerColumnNames.isEmpty()) {
             return Collections.emptyMap();
         }
-        Map<String, String> result = new LinkedHashMap<>();
+        Map<String, String> result = new LinkedHashMap<>(simpleTableSegments.size(), 1F);
         for (SimpleTableSegment each : simpleTableSegments) {
             String tableName = each.getTableName().getIdentifier().getValue();
             if (ownerColumnNames.containsKey(tableName)) {
